@@ -4686,6 +4686,11 @@ public final class Avrcp_ext {
         Log.d(TAG,"streamo volume saved: " + deviceFeatures[deviceIndex].mLocalVolume);
         return;
     }
+
+    public boolean startSHO(BluetoothDevice device, boolean PlayReq) {
+        return false;
+    }
+
     public void setActiveDevice(BluetoothDevice device) {
         if (device == null) {
           for (int i = 0; i < maxAvrcpConnections; i++) {
