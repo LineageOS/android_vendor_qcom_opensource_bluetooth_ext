@@ -804,6 +804,17 @@ public final class Avrcp_ext {
                     if(vol != deviceFeatures[deviceIndex].mRemoteVolume &&
                        deviceFeatures[deviceIndex].isAbsoluteVolumeSupportingDevice)
                        setVolumeNative(vol , getByteAddress(deviceFeatures[deviceIndex].mCurrentDevice));
+                       if (deviceFeatures[deviceIndex].mCurrentDevice.isTwsPlusDevice()) {
+                           AdapterService adapterService = AdapterService.getAdapterService();
+                           BluetoothDevice peer_device =
+                            adapterService.getTwsPlusPeerDevice(deviceFeatures[deviceIndex].mCurrentDevice);
+                           if (peer_device != null &&
+                               getIndexForDevice(peer_device) != INVALID_DEVICE_INDEX) {
+                               // Change volume to peer earbud as well
+                               Log.d(TAG,"setting volume to TWS+ peer also");
+                               setVolumeNative(vol, getByteAddress(peer_device));
+                           }
+                       }
                 }
                 //mLastLocalVolume = -1;
                 break;
@@ -3098,7 +3109,8 @@ public final class Avrcp_ext {
              (mDevice.isTwsPlusDevice() && device.isTwsPlusDevice()))) {
             setActiveDevice(mDevice);
             //below line to send setAbsolute volume if device is suporting absolute volume
-            setAbsVolumeFlag(mDevice);
+            if (mDevice.equals(deviceFeatures[index].mCurrentDevice))
+                setAbsVolumeFlag(mDevice);//Do not call this funciton for second EB connect
             //When A2dp playing on DUT and Remote got connected, send proper playstatus
             if (isPlayingState(mCurrentPlayerState) &&
                 mA2dpService.isA2dpPlaying(device)) {
