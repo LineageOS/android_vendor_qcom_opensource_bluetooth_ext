@@ -50,7 +50,6 @@
 #include "sdp_api.h"
 #include "gatt_api.h"
 #include "gap_api.h"
-#include "mca_api.h"
 #include <hardware/hardware.h>
 #include "btm_api.h"
 #include "bt_types.h"
@@ -138,37 +137,6 @@ typedef struct {
 typedef struct
 {
     size_t    size;
-    void (*Init)(void);
-    tMCA_HANDLE (*Register)(tMCA_REG *p_reg, tMCA_CTRL_CBACK *p_cback);
-    void        (*Deregister)(tMCA_HANDLE handle);
-    tMCA_RESULT (*CreateDep)(tMCA_HANDLE handle, tMCA_DEP *p_dep, tMCA_CS *p_cs);
-    tMCA_RESULT (*DeleteDep)(tMCA_HANDLE handle, tMCA_DEP dep);
-    tMCA_RESULT (*ConnectReq)(tMCA_HANDLE handle, RawAddress bd_addr,
-                                          uint16_t ctrl_psm,
-                                          uint16_t sec_mask);
-    tMCA_RESULT (*DisconnectReq)(tMCA_CL mcl);
-    tMCA_RESULT (*CreateMdl)(tMCA_CL mcl, tMCA_DEP dep, uint16_t data_psm,
-                                         uint16_t mdl_id, uint8_t peer_dep_id,
-                                         uint8_t cfg, const tMCA_CHNL_CFG *p_chnl_cfg);
-    tMCA_RESULT (*CreateMdlRsp)(tMCA_CL mcl, tMCA_DEP dep,
-                                            uint16_t mdl_id, uint8_t cfg, uint8_t rsp_code,
-                                            const tMCA_CHNL_CFG *p_chnl_cfg);
-    tMCA_RESULT (*CloseReq)(tMCA_DL mdl);
-    tMCA_RESULT (*ReconnectMdl)(tMCA_CL mcl, tMCA_DEP dep, uint16_t data_psm,
-                                            uint16_t mdl_id, const tMCA_CHNL_CFG *p_chnl_cfg);
-    tMCA_RESULT (*ReconnectMdlRsp)(tMCA_CL mcl, tMCA_DEP dep,
-                                               uint16_t mdl_id, uint8_t rsp_code,
-                                               const tMCA_CHNL_CFG *p_chnl_cfg);
-    tMCA_RESULT (*DataChnlCfg)(tMCA_CL mcl, const tMCA_CHNL_CFG *p_chnl_cfg);
-    tMCA_RESULT (*Abort)(tMCA_CL mcl);
-    tMCA_RESULT (*Delete)(tMCA_CL mcl, uint16_t mdl_id);
-    tMCA_RESULT (*WriteReq)(tMCA_DL mdl, BT_HDR *p_pkt);
-    uint16_t (*GetL2CapChannel) (tMCA_DL mdl);
-}btmcap_interface_t;
-
-typedef struct
-{
-    size_t    size;
     //GATT common APIs (Both client and server)
     tGATT_IF (*Register) (bluetooth::Uuid& p_app_uuid128, tGATT_CBACK *p_cb_info);
     void (*Deregister) (tGATT_IF gatt_if);
@@ -179,7 +147,9 @@ typedef struct
 
     //GATT Client APIs
     tGATT_STATUS (*cConfigureMTU) (uint16_t conn_id, uint16_t  mtu);
-    tGATT_STATUS (*cDiscover) (uint16_t conn_id, tGATT_DISC_TYPE disc_type, tGATT_DISC_PARAM *p_param );
+    tGATT_STATUS (*cDiscover) (uint16_t conn_id, tGATT_DISC_TYPE disc_type,
+                            uint16_t start_handle, uint16_t end_handle,
+                            const bluetooth::Uuid& uuid);
     tGATT_STATUS (*cRead) (uint16_t conn_id, tGATT_READ_TYPE type, tGATT_READ_PARAM *p_read);
     tGATT_STATUS (*cWrite) (uint16_t conn_id, tGATT_WRITE_TYPE type, tGATT_VALUE *p_write);
     tGATT_STATUS (*cExecuteWrite) (uint16_t conn_id, bool is_execute);
@@ -201,7 +171,7 @@ typedef struct
     bool (*PairCancel) (RawAddress bd_addr);
     void (*SecurityGrant)(RawAddress bd_addr, uint8_t res);
     void (*PasskeyReply) (RawAddress bd_addr, uint8_t res, uint32_t passkey);
-    bool (*Encrypt) (uint8_t *key, uint8_t key_len, uint8_t *plain_text, uint8_t pt_len, tSMP_ENC *p_out);
+    Octet16 (*Encrypt) (Octet16 key, Octet16 message);
 }btsmp_interface_t;
 typedef struct
 {

@@ -326,18 +326,18 @@ enum {
 tL2CAP_FCR_OPTS ertm_fcr_opts_def = {
     L2CAP_FCR_ERTM_MODE,
     3, /* Tx window size */
-    MCA_FCR_OPT_MAX_TX_B4_DISCNT, /* Maximum transmissions before disconnecting */
+    20, /* Maximum transmissions before disconnecting */
     2000, /* Retransmission timeout (2 secs) */
-    MCA_FCR_OPT_MONITOR_TOUT, /* Monitor timeout (12 secs) */
+    12000, /* Monitor timeout (12 secs) */
     100 /* MPS segment size */
 };
 
 tL2CAP_FCR_OPTS stream_fcr_opts_def = {
     L2CAP_FCR_STREAM_MODE,
     3,/* Tx window size */
-    MCA_FCR_OPT_MAX_TX_B4_DISCNT, /* Maximum transmissions before disconnecting */
+    20, /* Maximum transmissions before disconnecting */
     2000, /* Retransmission timeout (2 secs) */
-    MCA_FCR_OPT_MONITOR_TOUT, /* Monitor timeout (12 secs) */
+    12000, /* Monitor timeout (12 secs) */
     100 /* MPS segment size */
 };
 static tL2CAP_ERTM_INFO t_ertm_info = {0, 0, 0, 0, 0, 0};
@@ -2037,20 +2037,20 @@ static void l2test_l2c_connect_ind_cb(const RawAddress& bd_addr, uint16_t lcid, 
        if (psm == 200)
        {
            printf("No Resources Available\n");
-           result = L2CAP_LE_NO_RESOURCES;
-           sL2capInterface->LeConnectRsp (bd_addr, id, lcid, result,L2CAP_LE_CONN_OK,&local_coc_cfg);
+           result = L2CAP_LE_RESULT_NO_RESOURCES;
+           sL2capInterface->LeConnectRsp (bd_addr, id, lcid, result,L2CAP_LE_RESULT_CONN_OK,&local_coc_cfg);
        }
        else if(psm == 201)
        {
            printf("L2CAP_LE_CONN_INSUFFI_AUTHORIZATION \n");
-           result = L2CAP_LE_INSUFFICIENT_AUTHORIZATION;
-           sL2capInterface->LeConnectRsp (bd_addr, id, lcid, result,L2CAP_LE_CONN_OK,&local_coc_cfg);
+           result = L2CAP_LE_RESULT_INSUFFICIENT_AUTHORIZATION;
+           sL2capInterface->LeConnectRsp (bd_addr, id, lcid, result,L2CAP_LE_RESULT_CONN_OK,&local_coc_cfg);
        }
        else
        {
 
-           result = L2CAP_LE_CONN_OK;
-           sL2capInterface->LeConnectRsp (bd_addr, id, lcid, result,L2CAP_LE_CONN_OK,&local_coc_cfg);
+           result = L2CAP_LE_RESULT_CONN_OK;
+           sL2capInterface->LeConnectRsp (bd_addr, id, lcid, result,L2CAP_LE_RESULT_CONN_OK,&local_coc_cfg);
        }
        return;
    }
@@ -2079,7 +2079,7 @@ static void l2test_l2c_connect_cfm_cb(uint16_t lcid, uint16_t result)
     if (le_conn_info&&L2C_IS_VALID_LE_PSM(le_conn_info->psm))
     {
 
-        if (result == L2CAP_LE_CONN_OK) {
+        if (result == L2CAP_LE_RESULT_CONN_OK) {
             g_ConnectionState = CONNECT;
         }
         else if(le_conn_info && !le_conn_info->is_server)
@@ -2765,13 +2765,12 @@ void do_le_client_discover(char *p)
 {
     int        uuid_len = 0, uuid_len_bytes = 0;
     tGATT_STATUS Ret =0;
-    tGATT_DISC_PARAM param;
     tGATT_DISC_TYPE disc_type; //GATT_DISC_SRVC_ALL , GATT_DISC_SRVC_BY_UUID
     bool is_valid = false;
 
     disc_type = get_int(&p, -1);  // arg1
-    param.s_handle = get_hex(&p, -1);  // arg2
-    param.e_handle = get_hex(&p, -1);  // arg3
+    uint16_t s_handle = get_hex(&p, -1);  // arg2
+    uint16_t e_handle = get_hex(&p, -1);  // arg3
 
     uuid_len    = get_int(&p, -1);  // arg4 - Size in bits for the uuid (16, 32, or 128)
     if((16==uuid_len) || (32==uuid_len) || (128==uuid_len))
@@ -2785,12 +2784,12 @@ void do_le_client_discover(char *p)
     }
 
     std::string uuid_str = get_uuid_str(&p, uuid_len_bytes);
-    param.service = Uuid::FromString(uuid_str, &is_valid);
+    Uuid service = Uuid::FromString(uuid_str, &is_valid);
 
     printf("%s:: disc_type = %d is_valid = %d\n", __FUNCTION__, disc_type, is_valid);
 
     //if(FALSE == GetDiscType(p, &disc_type))    return;        //TODO - add the function if user input is needed
-    Ret = sGattInterface->cDiscover(g_conn_id, disc_type, &param);
+    Ret = sGattInterface->cDiscover(g_conn_id, disc_type, s_handle, e_handle, service);
     printf("%s:: Ret=%d \n", __FUNCTION__, Ret);
 }
 
