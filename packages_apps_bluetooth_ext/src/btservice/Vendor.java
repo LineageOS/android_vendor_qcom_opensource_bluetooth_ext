@@ -64,6 +64,10 @@ final class Vendor {
     private static final String TAG = "BluetoothVendorService";
     private AdapterService mService;
     private boolean isQtiStackEnabled;
+    private String socName;
+    private String a2dpOffloadCap;
+    // Split A2dp will be enabled by default
+    private boolean splitA2dpEnabled = true;
 
     static {
         classInitNative();
@@ -77,6 +81,12 @@ final class Vendor {
         initNative();
         isQtiStackEnabled = getQtiStackStatusNative();
         Log.d(TAG,"Qti Stack enabled status: " + isQtiStackEnabled);
+        socName = getSocNameNative();
+        Log.d(TAG,"socName: " + socName);
+        a2dpOffloadCap = getA2apOffloadCapabilityNative();
+        Log.d(TAG,"a2dpOffloadCap: " + a2dpOffloadCap);
+        splitA2dpEnabled = isSplitA2dpEnabledNative();
+        Log.d(TAG,"splitA2dpEnabled: " + splitA2dpEnabled);
     }
 
     public void bredrCleanup() {
@@ -198,9 +208,7 @@ final class Vendor {
     void adapterPropertyChangedCallback(int[] types, byte[][] values) {
         byte[] val;
         int type;
-        short twsPlusType;
-        boolean autoConnect;
-        byte[] mPeerAddress;
+
         if (types.length <= 0) {
             Log.e(TAG, "No properties to update");
             return;
@@ -209,18 +217,28 @@ final class Vendor {
         for (int j = 0; j < types.length; j++) {
             type = types[j];
             val = values[j];
-            if (val.length > 0) {
-                Log.d(TAG, "Property type: " + type);
-                switch (type) {
-                    case AbstractionLayer.BT_VENDOR_PROPERTY_HOST_ADD_ON_FEATURES:
-                        mService.updateHostFeatureSupport(val);
-                        break;
-                    case AbstractionLayer.BT_VENDOR_PROPERTY_SOC_ADD_ON_FEATURES:
-                        mService.updateSocFeatureSupport(val);
-                        break;
-                }
+            Log.d(TAG, "Property type: " + type);
+            switch (type) {
+                case AbstractionLayer.BT_VENDOR_PROPERTY_HOST_ADD_ON_FEATURES:
+                    mService.updateHostFeatureSupport(val);
+                    break;
+                case AbstractionLayer.BT_VENDOR_PROPERTY_SOC_ADD_ON_FEATURES:
+                    mService.updateSocFeatureSupport(val);
+                    break;
             }
         }
+    }
+
+    public String getSocName() {
+        return socName;
+    }
+
+    public String getA2apOffloadCapability() {
+        return socName;
+    }
+
+    public boolean isSplitA2dpEnabled() {
+        return splitA2dpEnabled;
     }
     private native void bredrcleanupNative();
     private native void bredrstartupNative();
@@ -232,4 +250,7 @@ final class Vendor {
     private native boolean getQtiStackStatusNative();
     private native boolean voipNetworkWifiInfoNative(boolean isVoipStarted, boolean isNetworkWifi);
     private native void hcicloseNative();
+    private native String getSocNameNative();
+    private native String getA2apOffloadCapabilityNative();
+    private native boolean isSplitA2dpEnabledNative();
 }
