@@ -719,7 +719,7 @@ public final class Avrcp_ext {
         }
         @Override
         public synchronized void onPlaybackStateChanged(PlaybackState state) {
-            if (DEBUG) Log.v(TAG, "onPlaybackStateChanged: state " + state.toString());
+            if (DEBUG) Log.v(TAG, "onPlaybackStateChanged: state " + ((state != null)? state.toString() : "NULL"));
             updateCurrentMediaState(null);
             Log.v(TAG, " Exit onPlaybackStateChanged");
         }
@@ -812,11 +812,15 @@ public final class Avrcp_ext {
                         notifyVolumeChanged(vol, false);
                 }
                 if (vol >= 0) {
-                    vol = convertToAvrcpVolume(vol);
-                    Log.d(TAG,"vol = " + vol + "rem vol = " + deviceFeatures[deviceIndex].mRemoteVolume);
-                    if(vol != deviceFeatures[deviceIndex].mRemoteVolume &&
+                    int volume = convertToAvrcpVolume(vol);
+                    int remVol = deviceFeatures[deviceIndex].mRemoteVolume;
+                    if (remVol != -1) {
+                        remVol = convertToAudioStreamVolume(remVol);
+                    }
+                    Log.d(TAG,"vol = " + vol + "remVol = " + remVol);
+                    if(remVol != -1 && vol != remVol &&
                        deviceFeatures[deviceIndex].mCurrentDevice != null) {
-                       setVolumeNative(vol , getByteAddress(deviceFeatures[deviceIndex].mCurrentDevice));
+                       setVolumeNative(volume , getByteAddress(deviceFeatures[deviceIndex].mCurrentDevice));
                        if (deviceFeatures[deviceIndex].mCurrentDevice.isTwsPlusDevice()) {
                            AdapterService adapterService = AdapterService.getAdapterService();
                            BluetoothDevice peer_device =
@@ -825,7 +829,7 @@ public final class Avrcp_ext {
                                getIndexForDevice(peer_device) != INVALID_DEVICE_INDEX) {
                                // Change volume to peer earbud as well
                                Log.d(TAG,"setting volume to TWS+ peer also");
-                               setVolumeNative(vol, getByteAddress(peer_device));
+                               setVolumeNative(volume, getByteAddress(peer_device));
                            }
                        }
                     }
@@ -1383,7 +1387,7 @@ public final class Avrcp_ext {
 
                         if(mHandler.hasMessages(MESSAGE_START_SHO)) {
                             mHandler.removeMessages(MESSAGE_START_SHO);
-                            triggerSHO(SHOQueue.device, SHOQueue.PlayReq);
+                            triggerSHO(SHOQueue.device, SHOQueue.PlayReq, false);
                         }
                     }
                     if(shoComplete == true) {
@@ -1564,12 +1568,23 @@ public final class Avrcp_ext {
                         break;
                     }
                     isShoActive = true;
-                    Log.d(TAG, "2: SHO started. PlayReq = " + msg.arg1);
+                    Log.d(TAG, "2: SHO started. PlayReq = " + msg.arg1 + "SHO Retry = " + msg.arg2);
                 }
 
                 BluetoothDevice dev = (BluetoothDevice)msg.obj;
                 boolean PlayReq = (msg.arg1 == 1);
-                mA2dpService.startSHO(dev);
+                boolean isRetry = (msg.arg2 == 1);
+                boolean ret;
+                ret = mA2dpService.startSHO(dev);
+                if(!ret) {
+                    isShoActive = false;
+                    if(isRetry) {
+                        Log.e(TAG, "SHO failed");
+                    } else {
+                        triggerSHO(dev, PlayReq, true);
+                    }
+                    break;
+                }
 
                 if(!PlayReq) {
                     synchronized (Avrcp_ext.this) {
@@ -1577,7 +1592,7 @@ public final class Avrcp_ext {
                         Log.d(TAG, "3: SHO complete");
                         if (mHandler.hasMessages(MESSAGE_START_SHO)) {
                             mHandler.removeMessages(MESSAGE_START_SHO);
-                            triggerSHO(SHOQueue.device, SHOQueue.PlayReq);
+                            triggerSHO(SHOQueue.device, SHOQueue.PlayReq, false);
                         }
                     }
                     CompleteSHO();
@@ -1809,7 +1824,7 @@ public final class Avrcp_ext {
                 for (int i = 0; i < maxAvrcpConnections; i++) {
                      if (i != deviceIndex && !deviceFeatures[i].isActiveDevice &&
                           deviceFeatures[i].mLastRspPlayStatus == PLAYSTATUS_PLAYING &&
-                          (state.getState() == PlaybackState.STATE_PLAYING)) {
+                          (state != null && state.getState() == PlaybackState.STATE_PLAYING)) {
                          PlaybackState.Builder playState = new PlaybackState.Builder();
                          playState.setState(PlaybackState.STATE_PAUSED,
                                           PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f);
@@ -2729,7 +2744,7 @@ public final class Avrcp_ext {
                     if (deviceFeatures[i].mCurrentDevice != null) {
                         Log.d(TAG, "SendPassThruPlay command sent for = "
                                 + deviceFeatures[i].mCurrentDevice);
-                        if (volume > mLocalVolume) {
+                        /*if (volume > mLocalVolume) {
                             Log.d(TAG, "Vol Passthrough Up");
                             avrcpCtrlService.sendPassThroughCmd(
                                 deviceFeatures[i].mCurrentDevice, AVRC_ID_VOL_UP,
@@ -2745,7 +2760,7 @@ public final class Avrcp_ext {
                            avrcpCtrlService.sendPassThroughCmd(
                                 deviceFeatures[i].mCurrentDevice, AVRC_ID_VOL_DOWN,
                                 AvrcpConstants_ext.KEY_STATE_RELEASE);
-                        }
+                         }*/
                         mLocalVolume = volume;
                     }
                 }
@@ -3232,9 +3247,6 @@ public final class Avrcp_ext {
         for (int i = 0; i < maxAvrcpConnections; i++ ) {
             if (deviceFeatures[i].mCurrentDevice !=null &&
                     deviceFeatures[i].mCurrentDevice.equals(device)) {
-                //for BT ON/OFF case sometime disconnect is coming for 1 or all device
-                //so storing volume before disconnect
-                storeVolumeForAllDevice(device);
                 // initiate cleanup for all variables;
                 Message msg = mHandler.obtainMessage(MESSAGE_DEVICE_RC_CLEANUP, STACK_CLEANUP,
                        0, device);
@@ -4373,7 +4385,7 @@ public final class Avrcp_ext {
         deviceFeatures[index].mLastLocalVolume = -1;
     }
 
-    private synchronized void onConnectionStateChanged(
+    private void onConnectionStateChanged(
             boolean rc_connected, boolean br_connected, byte[] address) {
         BluetoothDevice device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(address);
         Log.d(TAG, "onConnectionStateChanged " + rc_connected + " " + br_connected + " Addr:"
@@ -4859,27 +4871,6 @@ public final class Avrcp_ext {
         return INVALID_DEVICE_INDEX;
     }
 
-    public void storeVolumeForAllDevice(BluetoothDevice device) {
-        SharedPreferences.Editor pref = getVolumeMap().edit();
-        for (int i = 0; i < maxAvrcpConnections; i++) {
-            if (deviceFeatures[i].mCurrentDevice != null &&
-               deviceFeatures[i].mLocalVolume != -1) { //2nd condition to avoid -1 update to audio
-                if(deviceFeatures[i].isActiveDevice)//to get exact volume for active device
-                    deviceFeatures[i].mLocalVolume =
-                        mAudioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
-                if(getVolume(deviceFeatures[i].mCurrentDevice) != deviceFeatures[i].mLocalVolume) {
-                    Log.i(TAG, "storeVolumeForAllDevice: Storing stream volume level for device " +
-                        deviceFeatures[i].mCurrentDevice + " : " + deviceFeatures[i].mLocalVolume);
-                    mVolumeMap.put(deviceFeatures[i].mCurrentDevice, deviceFeatures[i].mLocalVolume);
-                    pref.putInt(deviceFeatures[i].mCurrentDevice.getAddress(),
-                        deviceFeatures[i].mLocalVolume);
-                    // Always use apply() since it is asynchronous, otherwise the call
-                    //can hang waiting for storage to be written.
-                    pref.apply();
-                }
-            }
-        }
-   }
 
     public void storeVolumeForDevice(BluetoothDevice device) {
         SharedPreferences.Editor pref = getVolumeMap().edit();
@@ -4923,6 +4914,11 @@ public final class Avrcp_ext {
             }
         }
         boolean ret = mA2dpService.startSHO(device);
+        if(!ret) {
+            isShoActive = false;
+            mHandler.removeMessages(MESSAGE_START_SHO);
+            triggerSHO(device, PlayReq, true);
+        }
         synchronized (Avrcp_ext.this) {
             if (!PlayReq) {
                 isShoActive = false;
@@ -4930,7 +4926,7 @@ public final class Avrcp_ext {
 
                 if (mHandler.hasMessages(MESSAGE_START_SHO)) {
                     mHandler.removeMessages(MESSAGE_START_SHO);
-                    triggerSHO(SHOQueue.device, SHOQueue.PlayReq);
+                    triggerSHO(SHOQueue.device, SHOQueue.PlayReq, false);
                 }
             }
         }
@@ -4938,9 +4934,14 @@ public final class Avrcp_ext {
         return ret;
     }
 
-    private void triggerSHO(BluetoothDevice device, boolean PlayReq) {
-        Message msg = mHandler.obtainMessage(MESSAGE_START_SHO, PlayReq?1:0, 0, device);
-        mHandler.sendMessage(msg);
+    private void triggerSHO(BluetoothDevice device, boolean PlayReq, boolean isRetry) {
+        Message msg = mHandler.obtainMessage(MESSAGE_START_SHO, PlayReq?1:0, isRetry?1:0, device);
+        if(isRetry) {
+            mHandler.sendMessageDelayed(msg, 2000);
+            Log.e(TAG, "Retry SHO after delay");
+        } else {
+            mHandler.sendMessage(msg);
+        }
     }
 
     public void CompleteSHO() {
@@ -5415,11 +5416,13 @@ public final class Avrcp_ext {
             new MediaSessionManager.Callback() {
                 @Override
                 public void onMediaKeyEventDispatched(KeyEvent event, MediaSession.Token token) {
-                    // Get the package name
-                    android.media.session.MediaController controller =
-                            new android.media.session.MediaController(mContext, token);
-                    String targetPackage = controller.getPackageName();
-                    recordKeyDispatched(event, targetPackage);
+                    if (token != null) {
+                        // Get the package name
+                        android.media.session.MediaController controller =
+                                new android.media.session.MediaController(mContext, token);
+                        String targetPackage = controller.getPackageName();
+                        recordKeyDispatched(event, targetPackage);
+                    }
                 }
 
                 @Override
