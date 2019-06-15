@@ -155,6 +155,8 @@ public final class Avrcp_ext {
     private boolean updateAbsVolume = false;
     private static final int NO_PLAYER_ID = 0;
 
+    private boolean is_player_updated_for_browse;
+    private String mCachedBrowsePlayer;
     private int mCurrAddrPlayerID;
     private int mCurrBrowsePlayerID;
     private int mLastUsedPlayerID;
@@ -420,6 +422,8 @@ public final class Avrcp_ext {
 
     private Avrcp_ext(Context context, A2dpService svc, int maxConnections ) {
         if (DEBUG) Log.v(TAG, "Avrcp");
+        mCachedBrowsePlayer = null;
+        is_player_updated_for_browse = false;
         mAdapter = BluetoothAdapter.getDefaultAdapter();
         mMediaAttributes = new MediaAttributes(null, null);
         mLastQueueId = MediaSession.QueueItem.UNKNOWN_ID;
@@ -1559,9 +1563,6 @@ public final class Avrcp_ext {
                 break;
 
             case MESSAGE_START_SHO:
-                if (mA2dpService != null)
-                    break;
-
                 synchronized (Avrcp_ext.this) {
                     if(mHandler.hasMessages(MESSAGE_START_SHO)) {
                         Log.e(TAG, "Queue already has another SHO pending");
@@ -3057,6 +3058,36 @@ public final class Avrcp_ext {
         }
     }
 
+
+    private void SetBrowsePackage(String PackageName) {
+        String browseService = (PackageName != null)?getBrowseServiceName(PackageName):null;
+        Log.w(TAG, "SetBrowsePackage for pkg " + PackageName + "svc" + browseService);
+        if (browseService != null && !browseService.isEmpty()) {
+            BluetoothDevice active_device = null;
+            for (int i = 0; i < maxAvrcpConnections; i++) {
+                if (deviceFeatures[i].mCurrentDevice != null &&
+                        deviceFeatures[i].isActiveDevice == true) {
+                    Log.w(TAG,"Device " + deviceFeatures[i].mCurrentDevice.getAddress() +" active");
+                    active_device = deviceFeatures[i].mCurrentDevice;
+                }
+            }
+            if (active_device != null) {
+                is_player_updated_for_browse = true;
+                byte[] addr = getByteAddress(active_device);
+                if (mAvrcpBrowseManager.getBrowsedMediaPlayer(addr) != null) {
+                    mCurrentBrowsingDevice = active_device;
+                    Log.w(TAG, "Addr Player update to Browse " + PackageName);
+                    mAvrcpBrowseManager.getBrowsedMediaPlayer(addr).
+                            setCurrentPackage(PackageName, browseService);
+                }
+            } else {
+                Log.w(TAG, "SetBrowsePackage Active device not set yet cache " + PackageName +
+                        "wait for connection");
+                mCachedBrowsePlayer = PackageName;
+            }
+        }
+    }
+
     private void blackListCurrentDevice(int i) {
         String mAddress = null;
         if (deviceFeatures[i].mCurrentDevice == null) {
@@ -3298,6 +3329,8 @@ public final class Avrcp_ext {
             mCurrentBrowsingDevice = null;
             changePathDepth = 0;
             changePathFolderType = 0;
+            is_player_updated_for_browse = false;
+            Log.w(TAG,"Reset is_player_updated_for_browse on device disconnection");
         }
         Log.v(TAG,"Exit setAvrcpDisconnectedDevice");
     }
@@ -3549,6 +3582,7 @@ public final class Avrcp_ext {
                     if (newControllers.size() > 0 && getAddressedPlayerInfo() == null) {
                         if (DEBUG)
                             Log.v(TAG, "No addressed player but active sessions, taking first.");
+                        Log.w(TAG,"Trigger setAddressedMediaSessionPkg frm onActiveSessionChanged");
                         setAddressedMediaSessionPackage(newControllers.get(0).getPackageName());
                     }
                     updateCurrentMediaState(null);
@@ -3567,12 +3601,15 @@ public final class Avrcp_ext {
         }
         // No change.
         if (getPackageName(mCurrAddrPlayerID).equals(packageName)) return;
-        if (DEBUG) Log.v(TAG, "Changing addressed media session to " + packageName);
+        Log.w(TAG, "Changing addressed media session to " + packageName);
         // If the player doesn't exist, we need to add it.
         if (getMediaPlayerInfo(packageName) == null) {
             addMediaPlayerPackage(packageName);
             updateCurrentMediaState(null);
         }
+
+        Log.w(TAG, "Calling SetBrowsePackage for " + packageName);
+        SetBrowsePackage(packageName);
 
         synchronized (this) {
             synchronized (mMediaPlayerInfoList) {
@@ -3614,6 +3651,9 @@ public final class Avrcp_ext {
         synchronized (Avrcp_ext.this) {
             addMediaPlayerController(activeController);
             setAddressedMediaSessionPackage(activeController.getPackageName());
+            mCachedBrowsePlayer = activeController.getPackageName();
+            Log.w(TAG,"Trigger setAddressedMediaSessionPackage from setActiveMediaSession" +
+                    mCachedBrowsePlayer);
         }
     }
 
@@ -3628,6 +3668,9 @@ public final class Avrcp_ext {
 
         addMediaPlayerController(mController);
         setAddressedMediaSessionPackage(mController.getPackageName());
+        mCachedBrowsePlayer = mController.getPackageName();
+        Log.w(TAG,"Trigger setAddressedMediaSessionPkg from setActiveMediaSession" +
+                mCachedBrowsePlayer);
     }
 
     private boolean startBrowseService(byte[] bdaddr, String packageName) {
@@ -4899,8 +4942,12 @@ public final class Avrcp_ext {
     }
 
     public boolean startSHO(BluetoothDevice device, boolean PlayReq) {
+        HeadsetService headsetService = HeadsetService.getHeadsetService();
+        boolean isInCall = headsetService != null && headsetService.isScoOrCallActive();
+        boolean isFMActive = mAudioManager.getParameters("fm_status").contains("1");
+        Log.d(TAG, "0: SHO Init: isInCall = " + isInCall + " isFMActive = " + isFMActive);
         synchronized (Avrcp_ext.this) {
-            if(isShoActive) {
+            if (isShoActive) {
                 mHandler.removeMessages (MESSAGE_START_SHO);
                 Message msg = mHandler.obtainMessage(MESSAGE_START_SHO, PlayReq?1:0, 0, device);
                 SHOQueue.device = device;
@@ -4920,7 +4967,7 @@ public final class Avrcp_ext {
             triggerSHO(device, PlayReq, true);
         }
         synchronized (Avrcp_ext.this) {
-            if (!PlayReq) {
+            if (!PlayReq || isInCall || isFMActive) {
                 isShoActive = false;
                 Log.d(TAG, "6: SHO complete");
 
@@ -4964,6 +5011,12 @@ public final class Avrcp_ext {
             return;
         }
         deviceFeatures[deviceIndex].isActiveDevice = true;
+
+        Log.w(TAG, "Active device Calling SetBrowsePackage for " + mCachedBrowsePlayer);
+        if (mCachedBrowsePlayer != null && is_player_updated_for_browse == false) {
+            SetBrowsePackage(mCachedBrowsePlayer);
+        }
+
         if (updateAbsVolume == true && deviceFeatures[deviceIndex].mCurrentDevice.isTwsPlusDevice()) {
             Log.d(TAG,"setting absVolume flag for TWS+ device");
             mAudioManager.avrcpSupportsAbsoluteVolume(device.getAddress(),true);
@@ -5397,6 +5450,8 @@ public final class Avrcp_ext {
         long time = System.currentTimeMillis();
         Log.v(TAG, "recordKeyDispatched: " + event + " dispatched to " + packageName);
         setAddressedMediaSessionPackage(packageName);
+        mCachedBrowsePlayer = packageName;
+        Log.w(TAG,"Trigger setAddressedMediaSessionPkg recordKeyDispatch" + mCachedBrowsePlayer);
         synchronized (mPassthroughPending) {
             Iterator<MediaKeyLog> pending = mPassthroughPending.iterator();
             while (pending.hasNext()) {
@@ -5444,6 +5499,9 @@ public final class Avrcp_ext {
                     }
                     // We can still get a passthrough which will revive this player.
                     setAddressedMediaSessionPackage(receiver.getPackageName());
+                    mCachedBrowsePlayer = receiver.getPackageName();
+                    Log.w(TAG,"Trigger setAddressedMediaSessionPackage from onAddrPlayerChanged" +
+                            mCachedBrowsePlayer);
                 }
             };
 
