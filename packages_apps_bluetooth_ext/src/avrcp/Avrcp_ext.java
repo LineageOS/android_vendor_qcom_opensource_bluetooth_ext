@@ -168,6 +168,7 @@ public final class Avrcp_ext {
     private boolean avrcp_playstatus_blacklist = false;
     private static final String [] BlacklistDeviceAddrToMediaAttr = {"00:17:53"/*Toyota Etios*/};
     private boolean ignore_play;
+    private BluetoothDevice disconnectedActiveDevice;
     private byte changePathFolderType;
     private FolderItemsRsp_ext saveRspObj;
     private int changePathDepth;
@@ -363,7 +364,7 @@ public final class Avrcp_ext {
         private int mBlackListVolume;
         private int mLastPassthroughcmd;
         private int mReportedPlayerID;
-
+        private boolean mTwsPairDisconnected;
         public DeviceDependentFeature(Context context) {
             mContext = context;
             mCurrentDevice = null;
@@ -406,6 +407,7 @@ public final class Avrcp_ext {
             mLastRspPlayStatus = -1;
             mLastPassthroughcmd = KeyEvent.KEYCODE_UNKNOWN;
             mReportedPlayerID = NO_PLAYER_ID;
+            mTwsPairDisconnected = false;
         }
     };
     DeviceDependentFeature[] deviceFeatures;
@@ -602,6 +604,7 @@ public final class Avrcp_ext {
         changePathDepth = 0;
         changePathFolderType = 0;
         changePathDirection = 0;
+        disconnectedActiveDevice = null;
         Avrcp_extVolumeManager();
         Log.v(TAG, "Exit start");
     }
@@ -669,6 +672,7 @@ public final class Avrcp_ext {
         changePathDepth = 0;
         changePathFolderType = 0;
         changePathDirection = 0;
+        disconnectedActiveDevice = null;
         Log.d(TAG, "Exit doQuit");
     }
 
@@ -807,11 +811,11 @@ public final class Avrcp_ext {
                 mAudioManager.avrcpSupportsAbsoluteVolume(device.getAddress(),
                                                           isAbsoluteVolumeSupported(deviceIndex));
                 if (mAbsVolThreshold > 0 && mAbsVolThreshold < mAudioStreamMax &&
-                        vol > mAbsVolThreshold) {
-                        if (DEBUG) Log.v(TAG, "remote inital volume too high " + vol + ">" +
-                            mAbsVolThreshold);
-                        vol = mAbsVolThreshold;
-                        notifyVolumeChanged(vol, false);
+                    vol > mAbsVolThreshold) {
+                    if (DEBUG) Log.v(TAG, "remote inital volume too high " + vol + ">" +
+                       mAbsVolThreshold);
+                    vol = mAbsVolThreshold;
+                    notifyVolumeChanged(vol, false);
                 }
                 if (vol >= 0) {
                     int volume = convertToAvrcpVolume(vol);
@@ -1156,11 +1160,19 @@ public final class Avrcp_ext {
                         if (i != deviceIndex && deviceFeatures[i].mCurrentDevice != null &&
                             deviceFeatures[i].mInitialRemoteVolume != -1 &&
                             isTwsPlusPair(conn_dev, device)) {
-                            Log.v(TAG,"volume already set for tws pair");
-                            deviceFeatures[deviceIndex].mInitialRemoteVolume = absVol;
-                            deviceFeatures[deviceIndex].mRemoteVolume = absVol;
-                            deviceFeatures[deviceIndex].mLocalVolume = convertToAudioStreamVolume(absVol);
-                            break;
+                            Log.v(TAG,"TWS+ pair found at index " + i +
+                               "mTwsPairDisconnected = " + deviceFeatures[i].mTwsPairDisconnected);
+                            if (deviceFeatures[i].mTwsPairDisconnected) {
+                                Log.v(TAG,"TWS+ pair was disconnected earlier");
+                                Log.v(TAG,"TWS+ store this volume");
+                                deviceFeatures[i].mTwsPairDisconnected = false;
+                            } else {
+                                Log.v(TAG,"volume already set for tws pair");
+                                deviceFeatures[deviceIndex].mInitialRemoteVolume = absVol;
+                                deviceFeatures[deviceIndex].mRemoteVolume = absVol;
+                                deviceFeatures[deviceIndex].mLocalVolume = convertToAudioStreamVolume(absVol);
+                                break;
+                            }
                         }
                     }
                 }
@@ -2745,23 +2757,23 @@ public final class Avrcp_ext {
                     if (deviceFeatures[i].mCurrentDevice != null) {
                         Log.d(TAG, "SendPassThruPlay command sent for = "
                                 + deviceFeatures[i].mCurrentDevice);
-                        /*if (volume > mLocalVolume) {
+                        if (volume > mLocalVolume) {
                             Log.d(TAG, "Vol Passthrough Up");
-                            avrcpCtrlService.sendPassThroughCmd(
-                                deviceFeatures[i].mCurrentDevice, AVRC_ID_VOL_UP,
-                                AvrcpConstants_ext.KEY_STATE_PRESS);
-                            avrcpCtrlService.sendPassThroughCmd(
-                                deviceFeatures[i].mCurrentDevice, AVRC_ID_VOL_UP,
-                                AvrcpConstants_ext.KEY_STATE_RELEASE);
+                            avrcpCtrlService.sendPassThroughCommandNative(
+                                Utils.getByteAddress(deviceFeatures[i].mCurrentDevice),
+                                AVRC_ID_VOL_UP, AvrcpConstants_ext.KEY_STATE_PRESS);
+                            avrcpCtrlService.sendPassThroughCommandNative(
+                                Utils.getByteAddress(deviceFeatures[i].mCurrentDevice),
+                                AVRC_ID_VOL_UP, AvrcpConstants_ext.KEY_STATE_RELEASE);
                         } else if (volume < mLocalVolume) {
                            Log.d(TAG, "Vol Passthrough Down");
-                           avrcpCtrlService.sendPassThroughCmd(
-                                deviceFeatures[i].mCurrentDevice, AVRC_ID_VOL_DOWN,
-                                AvrcpConstants_ext.KEY_STATE_PRESS);
-                           avrcpCtrlService.sendPassThroughCmd(
-                                deviceFeatures[i].mCurrentDevice, AVRC_ID_VOL_DOWN,
-                                AvrcpConstants_ext.KEY_STATE_RELEASE);
-                         }*/
+                           avrcpCtrlService.sendPassThroughCommandNative(
+                                Utils.getByteAddress(deviceFeatures[i].mCurrentDevice),
+                                AVRC_ID_VOL_DOWN, AvrcpConstants_ext.KEY_STATE_PRESS);
+                            avrcpCtrlService.sendPassThroughCommandNative(
+                                Utils.getByteAddress(deviceFeatures[i].mCurrentDevice),
+                                AVRC_ID_VOL_DOWN, AvrcpConstants_ext.KEY_STATE_RELEASE);
+                        }
                         mLocalVolume = volume;
                     }
                 }
@@ -3278,6 +3290,11 @@ public final class Avrcp_ext {
         for (int i = 0; i < maxAvrcpConnections; i++ ) {
             if (deviceFeatures[i].mCurrentDevice !=null &&
                     deviceFeatures[i].mCurrentDevice.equals(device)) {
+                if (deviceFeatures[i].isActiveDevice &&
+                      deviceFeatures[i].isAbsoluteVolumeSupportingDevice) {
+                    storeVolumeForDevice(device);
+                    disconnectedActiveDevice = device;
+                 }
                 // initiate cleanup for all variables;
                 Message msg = mHandler.obtainMessage(MESSAGE_DEVICE_RC_CLEANUP, STACK_CLEANUP,
                        0, device);
@@ -3307,6 +3324,8 @@ public final class Avrcp_ext {
                     isTwsPlusPair(device,deviceFeatures[i].mCurrentDevice )) {
                     Log.i(TAG,"TWS+ pair got disconnected,update absVolume");
                     updateAbsVolume = true;
+                    Log.i(TAG,"TWS+ pair disconnected, set mTwsPairDisconnected for index " + i);
+                    deviceFeatures[i].mTwsPairDisconnected = true;
                 }
             }
         }
@@ -4921,6 +4940,19 @@ public final class Avrcp_ext {
         int storeVolume =  mAudioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
         Log.i(TAG, "storeVolume: Storing stream volume level for device " + device
                 + " : " + storeVolume);
+        if (index != INVALID_DEVICE_INDEX && deviceFeatures[index].isAbsoluteVolumeSupportingDevice &&
+           (mAbsVolThreshold > 0 && mAbsVolThreshold < mAudioStreamMax &&
+           storeVolume > mAbsVolThreshold)) {
+            if (DEBUG) Log.v(TAG, "remote store volume too high" + storeVolume + ">" +
+               mAbsVolThreshold);
+                storeVolume = mAbsVolThreshold;
+        }
+        if (index == INVALID_DEVICE_INDEX && disconnectedActiveDevice != null &&
+            disconnectedActiveDevice.equals(device)) {
+            Log.v(TAG, "No need to store volume again during avrcp disconnect volume is stored");
+            disconnectedActiveDevice = null;
+            return;
+        }
         mVolumeMap.put(device, storeVolume);
         pref.putInt(device.getAddress(), storeVolume);
         if (device != null && device.isTwsPlusDevice()) {
@@ -4963,6 +4995,15 @@ public final class Avrcp_ext {
         boolean ret = mA2dpService.startSHO(device);
         if(!ret) {
             isShoActive = false;
+            if (device.isTwsPlusDevice()) {
+                BluetoothDevice activeDevice = mA2dpService.getActiveDevice();
+                if (activeDevice != null &&
+                    isTwsPlusPair(device, activeDevice)) {
+                    Log.e(TAG,"TWS+ switch ignored, do not retry sho");
+                    CompleteSHO();
+                    return ret;
+                }
+            }
             mHandler.removeMessages(MESSAGE_START_SHO);
             triggerSHO(device, PlayReq, true);
         }
@@ -4996,11 +5037,21 @@ public final class Avrcp_ext {
     }
 
     public void setActiveDevice(BluetoothDevice device) {
+        boolean tws_switch = false;
         if (device == null) {
           for (int i = 0; i < maxAvrcpConnections; i++) {
               deviceFeatures[i].isActiveDevice = false;
           }
           return;
+        }
+        if (device != null && device.isTwsPlusDevice()) {
+            for (int i = 0; i < maxAvrcpConnections; i++) {
+                if (deviceFeatures[i].mCurrentDevice != null &&
+                    deviceFeatures[i].isActiveDevice &&
+                    deviceFeatures[i].mCurrentDevice.isTwsPlusDevice()) {
+                    tws_switch = true;
+                }
+            }
         }
         int deviceIndex = getIndexForDevice(device);
         if (deviceIndex == INVALID_DEVICE_INDEX) {
@@ -5028,6 +5079,10 @@ public final class Avrcp_ext {
                 Log.d(TAG,"Other TWS+ earbud not connected, reset updateAbsVolume flag");
                 updateAbsVolume = false;
             }
+        }
+        if (device.isTwsPlusDevice() && !tws_switch) {
+            Log.d(TAG,"Restting mTwsPairDisconnected at index " + deviceIndex);
+            deviceFeatures[deviceIndex].mTwsPairDisconnected = false;
         }
         if (maxAvrcpConnections > 1) {
             for (int i = 0; i < maxAvrcpConnections; i++) {
