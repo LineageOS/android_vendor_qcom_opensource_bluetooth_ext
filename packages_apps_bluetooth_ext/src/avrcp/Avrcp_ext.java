@@ -126,7 +126,6 @@ public final class Avrcp_ext {
     private int mPlayStatusChangedNT;
     private byte mReportedPlayStatus;
     private int mPlayerStatusChangeNT;
-    //private int mReportedPlayStatus;
     private int mTrackChangedNT;
     private int mPlayPosChangedNT;
     private long mSongLengthMs;
@@ -888,7 +887,6 @@ public final class Avrcp_ext {
                        }
                     }
                 }
-                //mLastLocalVolume = -1;
                 break;
             }
 
@@ -2116,16 +2114,21 @@ public final class Avrcp_ext {
                 String CurrentPackageName = (mMediaController != null) ? mMediaController.getPackageName():null;
                 artistName = stringOrBlank(data.getString(MediaMetadata.METADATA_KEY_ARTIST));
                 albumName = stringOrBlank(data.getString(MediaMetadata.METADATA_KEY_ALBUM));
+                if (albumName.isEmpty()) {
+                  albumName =
+                      stringOrBlank(data.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST));
+                  Log.d(TAG,"overwrite album_artist :" + albumName + "if album is blank");
+                }
                 if (CurrentPackageName != null && !(CurrentPackageName.equals("com.android.music"))) {
                     mediaNumber = longStringOrBlank((data.getLong(MediaMetadata.METADATA_KEY_TRACK_NUMBER)));
                 } else {
                     /* playlist starts with 0 for default player*/
                     mediaNumber = longStringOrBlank((data.getLong(MediaMetadata.METADATA_KEY_TRACK_NUMBER) + 1L));
-            }
+                }
                 mediaTotalNumber = longStringOrBlank(data.getLong(MediaMetadata.METADATA_KEY_NUM_TRACKS));
                 genre = stringOrBlank(data.getString(MediaMetadata.METADATA_KEY_GENRE));
                 playingTimeMs = data.getLong(MediaMetadata.METADATA_KEY_DURATION);
-                if (DEBUG) Log.d(TAG," albumName :" + albumName + " device :" + device);
+                Log.d(TAG," albumName :" + albumName + " device :" + device);
                 if (mAvrcpBipRsp != null && device != null)
                     coverArt = stringOrBlank(mAvrcpBipRsp.getImgHandle(device, albumName));
                 else coverArt = stringOrBlank(null);
@@ -3316,21 +3319,15 @@ public final class Avrcp_ext {
         BrowsedMediaPlayer_ext player = mAvrcpBrowseManager.getBrowsedMediaPlayer(dummyaddr);
         Log.w(TAG, "SetBrowsePackage for pkg " + PackageName + "svc" + browseService);
         if (browseService != null && !browseService.isEmpty()) {
-            BluetoothDevice active_device = null;
-            for (int i = 0; i < maxAvrcpConnections; i++) {
-                if (deviceFeatures[i].mCurrentDevice != null &&
-                        deviceFeatures[i].isActiveDevice == true) {
-                    Log.w(TAG,"Device " + deviceFeatures[i].mCurrentDevice.getAddress() +" active");
-                    active_device = deviceFeatures[i].mCurrentDevice;
-                }
-            }
-            if (active_device != null) {
+            BluetoothDevice browse_active_device = mBrowsingActiveDevice;
+            if (browse_active_device != null) {
                 is_player_updated_for_browse = true;
-                byte[] addr = getByteAddress(active_device);
+                byte[] addr = getByteAddress(browse_active_device);
                 if (mAvrcpBrowseManager.getBrowsedMediaPlayer(addr) != null) {
-                    mCurrentBrowsingDevice = active_device;
                     Log.w(TAG, "Addr Player update to Browse " + PackageName +
                             " already req MBS list " + mPkgRequestedMBSConnect);
+                    mCurrentBrowsingDevice = browse_active_device;
+                    Log.w(TAG, "Addr Player update to Browse " + PackageName);
                     mAvrcpBrowseManager.getBrowsedMediaPlayer(addr).
                             setCurrentPackage(PackageName, browseService);
                     if (player != null && !mPkgRequestedMBSConnect.contains(PackageName)) {
@@ -3540,8 +3537,6 @@ public final class Avrcp_ext {
             (Objects.equals(mDevice, deviceFeatures[index].mCurrentDevice) ||
              (mDevice.isTwsPlusDevice() && device.isTwsPlusDevice()))) {
             setActiveDevice(deviceFeatures[index].mCurrentDevice);
-            //setActiveDevice(mDevice);
-            //below line to send setAbsolute volume if device is suporting absolute volume
             //When A2dp playing on DUT and Remote got connected, send proper playstatus
             if (isPlayingState(mCurrentPlayerState) &&
                 mA2dpService.isA2dpPlaying(device)) {
@@ -3575,16 +3570,11 @@ public final class Avrcp_ext {
                 deviceFeatures[i].mRemoteVolume = -1;
                 deviceFeatures[i].mLocalVolume = -1;
             }
-            /* Multicast scenario both abs vol supported
-               Active device got disconnected so make other
-               device which is left supporting absolute
-               volume as active device
-            */
             if (deviceFeatures[i].mCurrentDevice != null && device != null &&
                     !(Objects.equals(deviceFeatures[i].mCurrentDevice, device))) {
                 Log.i(TAG,"setAvrcpDisconnectedDevice : Active device changed to index = " + i);
                 if (device.isTwsPlusDevice() &&
-                    isTwsPlusPair(device,deviceFeatures[i].mCurrentDevice )) {
+                    isTwsPlusPair(device,deviceFeatures[i].mCurrentDevice)) {
                     Log.i(TAG,"TWS+ pair got disconnected,update absVolume");
                     updateAbsVolume = true;
                     Log.i(TAG,"TWS+ pair disconnected, set mTwsPairDisconnected for index " + i);
@@ -5278,12 +5268,11 @@ public final class Avrcp_ext {
           return;
         }
 
-        if (index != INVALID_DEVICE_INDEX && deviceFeatures[index].isAbsoluteVolumeSupportingDevice &&
-           (mAbsVolThreshold > 0 && mAbsVolThreshold < mAudioStreamMax &&
-           storeVolume > mAbsVolThreshold)) {
+        if (mAbsVolThreshold > 0 && mAbsVolThreshold < mAudioStreamMax &&
+           storeVolume > mAbsVolThreshold) {
             if (DEBUG) Log.v(TAG, "remote store volume too high" + storeVolume + ">" +
                mAbsVolThreshold);
-                storeVolume = mAbsVolThreshold;
+            storeVolume = mAbsVolThreshold;
         }
         if (index == INVALID_DEVICE_INDEX && disconnectedActiveDevice != null &&
             disconnectedActiveDevice.equals(device)) {
