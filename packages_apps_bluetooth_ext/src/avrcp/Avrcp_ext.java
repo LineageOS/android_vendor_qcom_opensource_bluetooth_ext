@@ -199,7 +199,9 @@ public final class Avrcp_ext {
 
     private static final ArrayList<String> playerBrowseWhiteListDB =
        new ArrayList<String>(Arrays.asList(
-               "com.google.android.music"
+               "com.google.android.music",
+               "com.nhn.android.music",
+               "com.gaana"
     ));
 
     private static final String nonMediaAppsBlacklistedNames[] = {
@@ -1443,18 +1445,6 @@ public final class Avrcp_ext {
                 mA2dpState = msg.arg1;
                 BluetoothDevice playStateChangeDevice = (BluetoothDevice)msg.obj;
                 Log.v(TAG, "event for device address " + playStateChangeDevice.getAddress());
-                deviceIndex = getIndexForDevice(playStateChangeDevice);
-                if (deviceIndex == INVALID_DEVICE_INDEX) {
-                    Log.e(TAG,"Set A2DP state: invalid index for device");
-                    break;
-                }
-                // if BA streaming is ongoing, don't update AVRCP state based on A2DP State.
-                // This is for some remote devices, which send PLAY/PAUSE based on AVRCP State.
-                BATService mBatService = BATService.getBATService();
-                if ((mBatService == null) || !mBatService.isA2dpSuspendFromBA()) {
-                  // if this suspend was triggered by BA, then don't update AVRCP states
-                  updateCurrentMediaState((BluetoothDevice)msg.obj);
-                }
 
                 if (mA2dpState == BluetoothA2dp.STATE_PLAYING) {
                     boolean shoComplete = false;
@@ -1474,6 +1464,20 @@ public final class Avrcp_ext {
                         CompleteSHO();
                     }
                 }
+
+                deviceIndex = getIndexForDevice(playStateChangeDevice);
+                if (deviceIndex == INVALID_DEVICE_INDEX) {
+                    Log.e(TAG,"Set A2DP state: invalid index for device");
+                    break;
+                }
+                // if BA streaming is ongoing, don't update AVRCP state based on A2DP State.
+                // This is for some remote devices, which send PLAY/PAUSE based on AVRCP State.
+                BATService mBatService = BATService.getBATService();
+                if ((mBatService == null) || !mBatService.isA2dpSuspendFromBA()) {
+                  // if this suspend was triggered by BA, then don't update AVRCP states
+                  updateCurrentMediaState((BluetoothDevice)msg.obj);
+                }
+
               }
               break;
 
@@ -1709,8 +1713,10 @@ public final class Avrcp_ext {
                 if (mFastforward)  mFastforward = false;
                 if (mRewind)  mRewind = false;
 
-                Log.w(TAG, "Active device Calling SetBrowsePackage for " + mCachedBrowsePlayer);
-                if (mCachedBrowsePlayer != null && is_player_updated_for_browse == false) {
+                if (mCurrentBrowsingDevice == null && mCachedBrowsePlayer != null &&
+                        is_player_updated_for_browse == false) {
+                    Log.w(TAG, "Calling SetBrowsePackage as part of device switch for "
+                            + mCachedBrowsePlayer);
                     SetBrowsePackage(mCachedBrowsePlayer);
                 }
 
@@ -2237,16 +2243,14 @@ public final class Avrcp_ext {
                 Log.v(TAG,"updateCurrentMediaState: isPlaying = " + isPlaying);
                 // Use A2DP state if we don't have a MediaControlller
                 PlaybackState.Builder builder = new PlaybackState.Builder();
-                if (mMediaController == null || mMediaController.getPlaybackState() == null) {
-                    Log.v(TAG,"updateCurrentMediaState: mMediaController or getPlaybackState() null");
-                    if (isPlaying) {
-                        builder.setState(PlaybackState.STATE_PLAYING,
-                                PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f);
-                    } else {
-                        builder.setState(PlaybackState.STATE_PAUSED,
-                                PlaybackState.PLAYBACK_POSITION_UNKNOWN, 0.0f);
-                    }
+                if (isPlaying) {
+                    builder.setState(PlaybackState.STATE_PLAYING,
+                            PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f);
                 } else {
+                    builder.setState(PlaybackState.STATE_PAUSED,
+                            PlaybackState.PLAYBACK_POSITION_UNKNOWN, 0.0f);
+                }
+                if (mMediaController != null && mMediaController.getPlaybackState() != null) {
                     int mMediaPlayState = mMediaController.getPlaybackState().getState();
                     if (isPlaying) {
                         builder.setState(PlaybackState.STATE_PLAYING,
@@ -2337,6 +2341,7 @@ public final class Avrcp_ext {
                         playerBrowseWhiteListDB.contains(currPkg))
                         || (prevPkg != null && !prevPkg.isEmpty() &&
                         playerBrowseWhiteListDB.contains(prevPkg))) {
+                    Log.w(TAG, "Send change response as part of player switch");
                     if (deviceFeatures[index].mAvailablePlayersChangedNT ==
                                 AvrcpConstants_ext.NOTIFICATION_TYPE_INTERIM) {
                         registerNotificationRspAvalPlayerChangedNative(
@@ -2796,23 +2801,6 @@ public final class Avrcp_ext {
 
         }
         return playStatus;
-    }
-
-    private boolean isPlayerInBrowseList() {
-        MediaPlayerInfo_ext info = getAddressedPlayerInfo();
-        String pkgName = (info != null) ? info.getPackageName():"";
-        if (pkgName == null || pkgName.isEmpty())
-            return false;
-
-        BrowsedMediaPlayer_ext player =
-                mAvrcpBrowseManager.getBrowsedMediaPlayer(dummyaddr);
-        String browseService = (pkgName != null)?getBrowseServiceName(pkgName):null;
-        if (player == null || browseService == null || browseService.isEmpty())
-            return false;
-
-        boolean isBrowseSupported = player.isPackageInMBSList(pkgName);
-        Log.d(TAG, "Browse supported for pkg " + pkgName + " is " + isBrowseSupported);
-        return isBrowseSupported;
     }
 
     private boolean isPlayingState(@Nullable PlaybackState state) {
@@ -3293,7 +3281,6 @@ public final class Avrcp_ext {
 
     private void SetBrowsePackage(String PackageName) {
         String browseService = (PackageName != null)?getBrowseServiceName(PackageName):null;
-        BrowsedMediaPlayer_ext player = mAvrcpBrowseManager.getBrowsedMediaPlayer(dummyaddr);
         Log.w(TAG, "SetBrowsePackage for pkg " + PackageName + "svc" + browseService);
         if (browseService != null && !browseService.isEmpty()) {
             BluetoothDevice browse_active_device = mBrowsingActiveDevice;
@@ -3301,17 +3288,9 @@ public final class Avrcp_ext {
                 is_player_updated_for_browse = true;
                 byte[] addr = getByteAddress(browse_active_device);
                 if (mAvrcpBrowseManager.getBrowsedMediaPlayer(addr) != null) {
-                    Log.w(TAG, "Addr Player update to Browse " + PackageName +
-                            " already req MBS list " + mPkgRequestedMBSConnect);
-                    mCurrentBrowsingDevice = browse_active_device;
                     Log.w(TAG, "Addr Player update to Browse " + PackageName);
                     mAvrcpBrowseManager.getBrowsedMediaPlayer(addr).
                             setCurrentPackage(PackageName, browseService);
-                    if (player != null && !mPkgRequestedMBSConnect.contains(PackageName)) {
-                        Log.w(TAG,"checkMBSConnection try connect");
-                        player.CheckMBSConnection(PackageName, browseService);
-                        mPkgRequestedMBSConnect.add(PackageName);
-                    }
                 }
             } else {
                 Log.w(TAG, "SetBrowsePackage Active device not set yet cache " + PackageName +
@@ -3789,10 +3768,12 @@ public final class Avrcp_ext {
 
         Log.d(TAG, "Enter setBrowsedPlayer");
         String address = Utils.getAddressStringFromByte(bdaddr);
+        BluetoothDevice prevBrowseDevice = mCurrentBrowsingDevice;
         mCurrentBrowsingDevice = mAdapter.getRemoteDevice(address);
         // checking for error cases
         BluetoothDevice device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(bdaddr);
         if (mBrowsingActiveDevice != null && !Objects.equals(mBrowsingActiveDevice, device)) {
+            mCurrentBrowsingDevice = prevBrowseDevice;
             status = AvrcpConstants_ext.RSP_INTERNAL_ERR;
             Log.w(TAG, "setBrowsedPlayer: Cmd from browse inactive device reject it");
         } else if (mMediaPlayerInfoList.isEmpty()) {
@@ -3887,8 +3868,10 @@ public final class Avrcp_ext {
             updateCurrentMediaState(null);
         }
 
-        Log.w(TAG, "Calling SetBrowsePackage for " + packageName);
-        SetBrowsePackage(packageName);
+        if (mCurrentBrowsingDevice == null) {
+            Log.w(TAG, "Calling SetBrowsePackage as part of player switch for " + packageName);
+            SetBrowsePackage(packageName);
+        }
 
         synchronized (this) {
             synchronized (mMediaPlayerInfoList) {
@@ -3991,27 +3974,21 @@ public final class Avrcp_ext {
         synchronized (this) {
             synchronized (mBrowsePlayerInfoList) {
                 mBrowsePlayerInfoList.clear();
-                BrowsedMediaPlayer_ext player =
-                        mAvrcpBrowseManager.getBrowsedMediaPlayer(dummyaddr);
-                Log.d(TAG, "buildBrowsablePlayerList " + player);
+                Log.d(TAG, "buildBrowsablePlayerList ");
                 Intent intent = new Intent(android.service.media.MediaBrowserService.SERVICE_INTERFACE);
                 List<ResolveInfo> playerList =
                         mPackageManager.queryIntentServices(intent, PackageManager.MATCH_ALL);
 
                 for (ResolveInfo info : playerList) {
-                    Log.d(TAG, "Fetch the displayName of package - start");
-                    CharSequence displayName = info.loadLabel(mPackageManager);
-                    Log.d(TAG, "Fetch the displayName of package - end");
-                    String displayableName =
-                            (displayName != null) ? displayName.toString():new String();
                     String serviceName = info.serviceInfo.name;
                     String packageName = info.serviceInfo.packageName;
-                    Log.d(TAG, "svc " + serviceName + " and pkg = " + packageName);
-                    if ((player != null) && (serviceName != null)) {
-                        player.CheckMBSConnection(packageName, serviceName);
-                    }
+                    Log.d(TAG, "Fetch the displayName of package - start");
+                    String displayName = getAppLabel(packageName);
+                    if (displayName == null) displayName = new String();
+                    Log.d(TAG, "Fetch the displayName of package -" + displayName + " end");
+                    Log.d(TAG, "svc " + serviceName + " pkg " + packageName);
                     BrowsePlayerInfo_ext currentPlayer =
-                            new BrowsePlayerInfo_ext(packageName, displayableName, serviceName);
+                            new BrowsePlayerInfo_ext(packageName, displayName, serviceName);
                     mBrowsePlayerInfoList.add(currentPlayer);
                     MediaPlayerInfo_ext playerInfo = getMediaPlayerInfo(packageName);
                     MediaController controller =
@@ -4741,6 +4718,11 @@ public final class Avrcp_ext {
         if (br_connected == true) {
             mBrowsingActiveDevice = device;
             Log.w(TAG, "onConnectionStateChanged Set Active browse device" + mBrowsingActiveDevice);
+            if (mCurrentBrowsingDevice == null && mCachedBrowsePlayer != null &&
+                    is_player_updated_for_browse == false) {
+                Log.w(TAG, "Calling SetBrowsePackage as part of connect for "+ mCachedBrowsePlayer);
+                SetBrowsePackage(mCachedBrowsePlayer);
+            }
             return;
         }
         int newState = (rc_connected ? BluetoothProfile.STATE_CONNECTED :
