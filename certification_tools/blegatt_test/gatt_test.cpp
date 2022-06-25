@@ -444,13 +444,13 @@ static btgatt_client_callbacks_t sGattClient_cb =
 /************************************************************************************
 **  Scanner Callbacks
 ************************************************************************************/
-
 static void scan_result_cb(uint16_t event_type, uint8_t addr_type,
                            RawAddress *bda, uint8_t primary_phy,
                            uint8_t secondary_phy,
                            uint8_t advertising_sid, int8_t tx_power,
                            int8_t rssi, uint16_t periodic_adv_int,
-                           std::vector<uint8_t> adv_data)
+                           std::vector<uint8_t> adv_data,
+                           RawAddress* original_bda)
 {
     printf("%s:: event_type=%d, bda=%02x%02x%02x%02x%02x%02x \n", __FUNCTION__, event_type, bda->address[0],
            bda->address[1], bda->address[2], bda->address[3], bda->address[4], bda->address[5]);

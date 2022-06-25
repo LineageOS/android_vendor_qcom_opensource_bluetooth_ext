@@ -379,7 +379,8 @@ static void scan_result_cb(uint16_t event_type, uint8_t addr_type,
                            uint8_t secondary_phy,
                            uint8_t advertising_sid, int8_t tx_power,
                            int8_t rssi, uint16_t periodic_adv_int,
-                           std::vector<uint8_t> adv_data)
+                           std::vector<uint8_t> adv_data,
+                           RawAddress* original_bda)
 {
 
     uint8_t len;

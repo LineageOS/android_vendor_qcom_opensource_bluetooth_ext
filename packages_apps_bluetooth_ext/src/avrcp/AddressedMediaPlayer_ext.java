@@ -511,10 +511,8 @@ public class AddressedMediaPlayer_ext {
 
                 case AvrcpConstants_ext.ATTRID_COVER_ART:
                     if (mAvrcp != null && mAvrcp.isCoverArtFeatureSupported(bdaddr)) {
-                        attrValue = mAvrcp.getImgHandle(bdaddr, data);
-                    } else {
-                        attrValue = null;
-                        if (DEBUG) Log.d(TAG, " mAvrcp null ");
+                        String handle = mAvrcp.getImgHandle(bdaddr, data);
+                        attrValue = (handle != null && !handle.isEmpty()) ? handle : null;
                     }
                     break;
 

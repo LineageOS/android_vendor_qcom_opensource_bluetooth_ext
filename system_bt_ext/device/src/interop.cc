@@ -296,6 +296,8 @@ static const char* interop_feature_string_(const interop_feature_t feature)
     CASE_RETURN_STR(INTEROP_ENABLE_PREFERRED_CONN_PARAMETER)
     CASE_RETURN_STR(INTEROP_RETRY_SCO_AFTER_REMOTE_REJECT_SCO)
     CASE_RETURN_STR(INTEROP_DELAY_SCO_FOR_MO_CALL)
+    CASE_RETURN_STR(INTEROP_KEEP_RC_CONNECTED_AV_DISCONNECTED)
+    CASE_RETURN_STR(INTEROP_CHANGE_HID_VID_PID)
     CASE_RETURN_STR(END_OF_INTEROP_LIST)
     CASE_RETURN_STR(INTEROP_HFP_1_8_BLACKLIST)
   }
@@ -668,7 +670,7 @@ static bool interop_database_match_( interop_db_entry_t *entry,
           interop_name_entry_t *cur = &db_entry->entry_type.name_entry;
 
           if ((src->feature == cur->feature) &&
-              (strcasestr(src->name, cur->name) != NULL)) {
+              (strcasestr(src->name, cur->name) == src->name)) {
             if (ret_entry) {
               *ret_entry = db_entry;
             }
